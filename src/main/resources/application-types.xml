@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<types:mule xmlns:types="http://www.mulesoft.org/schema/mule/types">
+  <types:catalog>
+    <types:type name="afip" format="java">
+      <types:shape format="java" element="com.cyepez.servicios.ProcessFile$AFIPObject"/>
+    </types:type>
+  </types:catalog>
+  <types:enrichment select="#7f90715f-73a0-4044-ac5b-0ab738739c35">
+    <types:processor-declaration>
+      <types:output-event>
+        <types:message>
+          <types:payload type="afip"/>
+        </types:message>
+      </types:output-event>
+    </types:processor-declaration>
+  </types:enrichment>
+</types:mule>

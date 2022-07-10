@@ -1,0 +1,20 @@
+#%RAML 1.0
+title: Procesar AFIP
+version: 1.0
+
+/procesar:
+
+  post:
+    displayName: Post Procesar AFIP
+    body:
+      application/json:
+        example:
+          value: 
+            file_stringbase64: "codigobase64"
+            file_type: "image/png"
+    responses:
+      200:
+        body:
+          application/json:
+            type: object
+            example: !include examples/AFIPExample.raml
