@@ -8,10 +8,22 @@ version: 1.0
     displayName: Post Procesar AFIP
     body:
       application/json:
-        example:
-          value: 
-            file_stringbase64: "codigobase64"
-            file_type: "image/png"
+        properties:
+          file_stringbase64:
+            type: string
+            required: true
+            displayName: file_stringbase64
+            description: "Contenido de archivo en formato StringBase64"
+          file_type:
+            type: string
+            required: true
+            displayName: file_type
+            description: "Tipo de archivo del campo file_stringbase64"
+            example: "image/png"
+#        example:
+#          value: 
+#            file_stringbase64: "codigobase64"
+#            file_type: "image/png"
     responses:
       200:
         body:

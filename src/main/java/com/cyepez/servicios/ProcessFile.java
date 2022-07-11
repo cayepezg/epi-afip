@@ -3,35 +3,36 @@ package com.cyepez.servicios;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
-
 import javax.imageio.ImageIO;
 import javax.xml.bind.DatatypeConverter;
-
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-
+import org.apache.pdfbox.rendering.ImageType;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.LuminanceSource;
 import com.google.zxing.MultiFormatReader;
-import com.google.zxing.Reader;
 import com.google.zxing.Result;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.multi.GenericMultipleBarcodeReader;
 import com.google.zxing.multi.MultipleBarcodeReader;
+import com.sun.org.slf4j.internal.Logger;
+import com.sun.org.slf4j.internal.LoggerFactory;
 
 /**
  * Procesa archivo de tipo imágenes y pdf, buscando en estos códigos QR en los
@@ -41,6 +42,7 @@ import com.google.zxing.multi.MultipleBarcodeReader;
  */
 public class ProcessFile {
 	
+	private final static Logger log = LoggerFactory.getLogger(ProcessFile.class);
 
 	/**
 	 * Recibe el archivo stringBase64 y el tipo de archivo que es enviado al 
@@ -48,73 +50,144 @@ public class ProcessFile {
 	 * @param stringBase64
 	 * @param tipoArchivo
 	 * @return
-	 * @throws Exception
+	 * @throws Exception"error.formato.nosoportado"
 	 */
 	public static AFIPObject procesarArchivo(String stringBase64, 
 			String tipoArchivo)
 			throws Exception {
 		
-		String stringFile = null;
+		if (stringBase64 == null || stringBase64.isEmpty() || 
+				tipoArchivo == null || tipoArchivo.isEmpty()) {
+			throw new Exception("error.datos.requeridos");
+		}
+		
+		List<String> listStringFile = null;
 		
 		if (tipoArchivo.equalsIgnoreCase("image/jpeg") ||
+				tipoArchivo.equalsIgnoreCase("image/jpg") ||
 				tipoArchivo.equalsIgnoreCase("image/png")) {
-			// No hago nada puesto la recomendación PAE es procesar imágenes. 
-			stringFile = stringBase64;
+			// No hago nada puesto la recomendación PAE es procesar imágenes.
+			listStringFile = Arrays.asList(stringBase64);
 		} else if (tipoArchivo.equalsIgnoreCase("application/pdf")) {
 			// Convertir a imagen puesto la recomendación PAE es
 			// trabajar con imágenes.
-			stringFile = pdfToImageStringBase64(stringBase64);
+			listStringFile = pdfToImageStringBase64(stringBase64);
 		} else {
-			// Preguntar que decisión tomar puesto en el requerimiento se 
-			// menciona que se recibirán o imágen o PDF.
+			// Si el formato no corresponde a alguno de los presentes en la
+			// validacíón, lanzo un exception.
+			throw new Exception("error.formato.nosoportado");
 		}
 		
-		return procesarImgB64(stringFile);
+		AFIPObject afip = procesarImgB64(listStringFile);
+		
+		if (afip == null) {
+			throw new Exception("error.afipvalido.noencontrado");
+		}
+
+		return afip;
 		
 	}
 	
 	/**
-	 * Extrae informacion AFIP de una imagen (En formato StringBase64) que debe 
-	 * contener al menos un código QR que apunte a una URL la cual debe tener en
-	 * un parámetro la información AFIP mencionada, codificada en BASE64.
-	 * @param stringFile
+	 * Extrae informacion AFIP de una listado de imagenenes (En formato 
+	 * StringBase64) que debe  contener al menos un código QR que apunte 
+	 * a una URL la cual debe tener en un parámetro la información AFIP 
+	 * mencionada, codificada en BASE64.
+	 * @param listStringFile
 	 * @return
 	 * @throws Exception
 	 */
-	public static AFIPObject procesarImgB64(String stringFile) 
+	public static AFIPObject procesarImgB64(List<String> listStringFile) 
 			throws Exception {
 		
 		AFIPObject afip = null;
-		
-		byte[] imageBytes = DatatypeConverter.parseBase64Binary(stringFile);
-		
-        BufferedImage barCodeBufferedImage = ImageIO.read(
-        		new ByteArrayInputStream(imageBytes));
 
-        LuminanceSource source = 
-        		new BufferedImageLuminanceSource(barCodeBufferedImage);
-        BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
-        Reader reader = new MultiFormatReader();
-        MultipleBarcodeReader bcReader = 
-        		new GenericMultipleBarcodeReader(reader);
-        Hashtable<DecodeHintType, Object> hints =
-        		new Hashtable<DecodeHintType, Object>();
-        
-        // Verificar en esta linea si sirve para filtrar los únicamente
-        // los código QR.
-        hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
-
-        for (Result result : bcReader.decodeMultiple(bitmap, hints)) {
-        	Map<String, String> map = getURIQueryParamans(result.getText());
-        	
-        	if (map.get("p")!= null) {
-        		afip = new ObjectMapper().readValue(
-        				new String(Base64.getDecoder().decode(map.get("p"))), 
-        				AFIPObject.class);
-        	}
-        	
-        }
+		// Para cada archivo, extraigo y analizo cada QR.
+		for (String stringFile: listStringFile) {
+			
+			try {
+				byte[] bytes = DatatypeConverter.parseBase64Binary(stringFile);
+				BufferedImage qrBufferedImg = ImageIO.read(new ByteArrayInputStream(bytes));
+		        LuminanceSource source = 
+		        		new BufferedImageLuminanceSource(qrBufferedImg);
+		        BinaryBitmap bitmap = new BinaryBitmap(new HybridBinarizer(source));
+		        
+		        MultipleBarcodeReader bcReader = 
+		        		new GenericMultipleBarcodeReader(new MultiFormatReader());
+		        
+		        Hashtable<DecodeHintType, Object> filtros = new Hashtable<DecodeHintType, Object>();
+		        filtros.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+		        filtros.put(DecodeHintType.POSSIBLE_FORMATS, Arrays.asList(BarcodeFormat.QR_CODE));
+		        
+		        // Por cada qr prsente en cada archivo, verivico si posee info AFIP
+		        for (Result result : bcReader.decodeMultiple(bitmap, filtros)) {
+		        	
+		        	Map<String, String> map = getURIQueryParamans(result.getText());
+		        	
+		        	try {
+		        		if (map.get("p")!= null) {
+			        		afip = new ObjectMapper().readValue(
+			        				new String(Base64.getDecoder().decode(
+			        						map.get("p"))), 
+			        				AFIPObject.class);
+			        	} else {
+			        		afip = new ObjectMapper().readValue(
+			        				new String(
+			        						Base64.getDecoder().decode(
+			        								result.getText())), 
+			        				AFIPObject.class);
+			        	}
+		        		
+		        		// Si el afip es válido, no recorro otros QR.
+		        		if (validaAFIP(afip)) {
+		        			break;
+		        		}
+		        		
+		        		afip = null;
+		        		
+		        	} catch (Exception e) {
+		        		afip = null;
+		        	}
+		        }
+		        
+		        // Si ya consiguió un AFIP válido, no recorro otros documentos.
+		        if (afip != null) {
+		        	break;
+		        }
+			} catch (Exception e) {
+				log.error("No pude procesar el archivo IMAGEN stringBase64");
+			}
+	        
+		}
+		
         return afip;
+	}
+	
+	/**
+	 * Chequea que los campos AFIP estén conformes de acuerdo a las
+	 * especifiaciones de los campos obligatorios.
+	 * @param afip
+	 * @return
+	 */
+	public static boolean validaAFIP(AFIPObject afip) {
+		
+		if (afip == null ||
+				afip.getVer() == null || afip.getVer().isEmpty() ||
+				afip.getFecha() == null || afip.getFecha().isEmpty() ||
+				afip.getCuit() == null ||
+				afip.getPtoVta() == null ||
+				afip.getTipoCmp() == null ||
+				afip.getNroCmp() == null ||
+				afip.getImporte() == null ||
+				afip.getMoneda() == null || afip.getMoneda().isEmpty() ||
+				afip.getCtz() == null ||
+				afip.getTipoCodAut() == null || afip.getTipoCodAut().isEmpty() ||
+				afip.getCodAut() == null) {
+			return false;
+			
+		}
+		
+		return true;
 	}
 	
 	/**
@@ -151,36 +224,44 @@ public class ProcessFile {
 	
 	
 	/**
-	 * Transforma un PDF en formato StringBase64 a imagen StringBase64
+	 * Transforma un PDF en formato StringBase64 a tantas imagen StringBase64
+	 * como paginas tenga el documento PDF.
 	 * @param pdfBase64
 	 * @return StringBase64
 	 */
-	public static String pdfToImageStringBase64(String pdfBase64) {
+	public static List<String> pdfToImageStringBase64(String pdfBase64) {
 		
-		final ByteArrayOutputStream os = new ByteArrayOutputStream();
-		String result = null;
+		List<String> listImagString = new ArrayList<String>();
 		PDDocument doc = null;
-		
-		byte[] pdfBytes = DatatypeConverter.parseBase64Binary(pdfBase64);
-		
+
 		try {
+			byte[] pdfBytes = DatatypeConverter.parseBase64Binary(pdfBase64);
 			doc = PDDocument.load(new ByteArrayInputStream(pdfBytes));
-			@SuppressWarnings("unchecked")
-			List<PDPage> list = doc.getDocumentCatalog().getAllPages();
+			PDFRenderer pdfRenderer = new PDFRenderer(doc);
 			
-			for (PDPage p: list) {
-				BufferedImage image = p.convertToImage();
-				ImageIO.write(image, "png", os);
-				result = Base64.getEncoder().encodeToString(os.toByteArray());
+			for (int p = 0; p < doc.getNumberOfPages(); ++p) {
+				final ByteArrayOutputStream os = new ByteArrayOutputStream();
+				BufferedImage image = null;
+				
+				try {
+					image = pdfRenderer.renderImageWithDPI(p, 300, ImageType.RGB);
+					ImageIO.write(image, "jpg", os);
+					listImagString.add(
+							Base64.getEncoder().encodeToString(os.toByteArray()));
+				} catch (Exception e) {
+					e.printStackTrace();
+				} finally {
+					os.close();
+				}
 			}
 			doc.close();
-			os.close();
 			
-		} catch (IOException e) {
+		} catch (Exception e) {
+			log.error("No pude procesar el PDF en formato Base64");
 			e.printStackTrace();
 		} 
-
-		return result;
+		
+		return listImagString;
 	}
 	
 	
@@ -205,7 +286,7 @@ public class ProcessFile {
 		
 		private Integer nroCmp;
 
-		private Float importe;
+		private Double importe;
 		
 		private String moneda;
 		
@@ -243,7 +324,7 @@ public class ProcessFile {
 		 * @param codAut
 		 */
 		public AFIPObject(String ver, String fecha, Long cuit, Integer ptoVta,
-				Integer tipoCmp, Integer nroCmp, Float importe, String moneda,
+				Integer tipoCmp, Integer nroCmp, Double importe, String moneda,
 				Float ctz, Integer tipoDocRec, Long nroDocRec, 
 				String tipoCodAut, Long codAut) {
 			super();
@@ -312,11 +393,11 @@ public class ProcessFile {
 			this.nroCmp = nroCmp;
 		}
 
-		public Float getImporte() {
+		public Double getImporte() {
 			return importe;
 		}
 
-		public void setImporte(Float importe) {
+		public void setImporte(Double importe) {
 			this.importe = importe;
 		}
 

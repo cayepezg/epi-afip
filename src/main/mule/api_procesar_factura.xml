@@ -130,7 +130,7 @@ output application/json
 		tipoArchivo: payload.file_type
 	}]]]></java:args>
         </java:invoke-static>
-        <ee:transform doc:id="7f90715f-73a0-4044-ac5b-0ab738739c35">
+		<ee:transform doc:id="7f90715f-73a0-4044-ac5b-0ab738739c35">
             <ee:message>
                 <ee:set-payload><![CDATA[%dw 2.0
 output application/json
@@ -138,5 +138,15 @@ output application/json
 payload]]></ee:set-payload>
             </ee:message>
         </ee:transform>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="05b1197e-ae08-497a-aa76-6e306bf51e7b" type="JAVA:INVOCATION" when=' #[error.exception.cause.target.localizedMessage contains "error.formato.nosoportado"]'>
+				<set-variable value="400" doc:name="Set Variable" doc:id="962327c0-9046-40f1-b84d-11ce95a36b4d" variableName="httpStatus"/>
+				<set-payload value='{"message":"El tipo de archivo  no está soportado."}' doc:name="Set Payload" doc:id="0331db4d-d520-40f6-a249-1fb078990a6a" mimeType="application/json" />
+			</on-error-continue>
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="6bf1718e-0942-470d-b65b-7ba1a2770789" type="JAVA:INVOCATION" when=' #[error.exception.cause.target.localizedMessage contains "error.afipvalido.noencontrado"]'>
+				<set-variable value="400" doc:name="Set Variable" doc:id="38cc900c-79ee-4af0-b990-969a62b3bc7d" variableName="httpStatus" />
+				<set-payload value='{"message":"No se pudo procesar un QR válido según la especificación AFIP."}' doc:name="Set Payload" doc:id="03b387e9-4c5a-4f45-8e77-f3611566542d" mimeType="application/json" />
+			</on-error-continue>
+		</error-handler>
     </flow>
 </mule>
